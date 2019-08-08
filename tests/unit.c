@@ -8,7 +8,8 @@
 
 #include "simdutf8check.h"
 #include "simdasciicheck.h"
-
+#include "simdutf8check_avx512.h"
+#include "simdasciicheck_avx512.h"
 
 
 
@@ -55,6 +56,46 @@ void test() {
       }
     }
     printf("\n");
+#ifdef __AVX512F__
+    if(!validate_utf8_fast_avx512(goodsequences[i], len)) {
+      printf("(avx512) failing to validate good string %zu \n", i);
+      for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)goodsequences[i][j]);
+      printf("\n");
+      abort();
+    }
+    for(size_t offset = 0; offset < N - len; offset++) {
+      printf(".");
+      fflush(NULL);
+      memset(buffer,0x20,N);
+      memcpy(buffer + offset, goodsequences[i], len);
+      if(!validate_utf8_fast_avx512(buffer, N)) {
+            printf("(avx512) failing to validate good string %zu with offset %zu \n", i, N);
+            for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)goodsequences[i][j]);
+            printf("\n");
+            abort();
+      }
+    }
+    printf("\n");
+    if(!validate_utf8_fast_avx512_asciipath(goodsequences[i], len)) {
+      printf("(avx512) failing to validate good string %zu \n", i);
+      for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)goodsequences[i][j]);
+      printf("\n");
+      abort();
+    }
+    for(size_t offset = 0; offset < N - len; offset++) {
+      printf(".");
+      fflush(NULL);
+      memset(buffer,0x20,N);
+      memcpy(buffer + offset, goodsequences[i], len);
+      if(!validate_utf8_fast_avx512_asciipath(buffer, N)) {
+            printf("(avx512) failing to validate good string %zu with offset %zu \n", i, N);
+            for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)goodsequences[i][j]);
+            printf("\n");
+            abort();
+      }
+    }
+    printf("\n");
+#endif
 #ifdef __AVX2__
     if(!validate_utf8_fast_avx(goodsequences[i], len)) {
       printf("(avx) failing to validate good string %zu \n", i);
@@ -159,6 +200,46 @@ void test() {
     }
     printf("\n");
 #endif
+#ifdef __AVX512F__
+    if(validate_utf8_fast_avx512(badsequences[i], len)) {
+      printf("(avx512) failing to invalidate bad string %zu \n", i);
+      for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)badsequences[i][j]);
+      printf("\n");
+      abort();
+    }
+    for(size_t offset = 0; offset < N - len; offset++) {
+      printf(".");
+      fflush(NULL);
+      memset(buffer,0x20,N);
+      memcpy(buffer + offset, badsequences[i], len);
+      if(validate_utf8_fast_avx512(buffer, N)) {
+            printf("(avx512) failing to invalidate bad string %zu with offset %zu \n", i, N);
+            for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)badsequences[i][j]);
+            printf("\n");
+            abort();
+      }
+    }
+    printf("\n");
+    if(validate_utf8_fast_avx512_asciipath(badsequences[i], len)) {
+      printf("(avx512) failing to invalidate bad string %zu \n", i);
+      for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)badsequences[i][j]);
+      printf("\n");
+      abort();
+    }
+    for(size_t offset = 0; offset < N - len; offset++) {
+      printf(".");
+      fflush(NULL);
+      memset(buffer,0x20,N);
+      memcpy(buffer + offset, badsequences[i], len);
+      if(validate_utf8_fast_avx512_asciipath(buffer, N)) {
+            printf("(avx512) failing to invalidate bad string %zu with offset %zu \n", i, N);
+            for(size_t j = 0; j < len; j++) printf("0x%02x ", (unsigned char)badsequences[i][j]);
+            printf("\n");
+            abort();
+      }
+    }
+    printf("\n");
+#endif
   }
 
   char ascii[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 0};
@@ -167,9 +248,15 @@ void test() {
 #ifdef __AVX2__
   assert(validate_ascii_fast_avx(ascii, strlen(ascii)));
 #endif 
+#ifdef __AVX512F__
+  assert(validate_ascii_fast_avx512(ascii, strlen(ascii)));
+#endif 
   assert(!validate_ascii_fast(notascii, strlen(notascii)));
 #ifdef __AVX2__
   assert(!validate_ascii_fast_avx(notascii, strlen(notascii)));
+#endif
+#ifdef __AVX512F__
+  assert(!validate_ascii_fast_avx512(notascii, strlen(notascii)));
 #endif
 
   __m128i cont = _mm_setr_epi8(4,0,0,0,3,0,0,2,0,1,2,0,3,0,0,1);
