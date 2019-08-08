@@ -1,9 +1,31 @@
+#ifndef SIMDUTF8CHECK_AXV512_H
+#define SIMDUTF8CHECK_AXV512_H
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <x86intrin.h>
+/*
+ * legal utf-8 byte sequence
+ * http://www.unicode.org/versions/Unicode6.0.0/ch03.pdf - page 94
+ *
+ *  Code Points        1st       2s       3s       4s
+ * U+0000..U+007F     00..7F
+ * U+0080..U+07FF     C2..DF   80..BF
+ * U+0800..U+0FFF     E0       A0..BF   80..BF
+ * U+1000..U+CFFF     E1..EC   80..BF   80..BF
+ * U+D000..U+D7FF     ED       80..9F   80..BF
+ * U+E000..U+FFFF     EE..EF   80..BF   80..BF
+ * U+10000..U+3FFFF   F0       90..BF   80..BF   80..BF
+ * U+40000..U+FFFFF   F1..F3   80..BF   80..BF   80..BF
+ * U+100000..U+10FFFF F4       80..8F   80..BF   80..BF
+ *
+ */
 
+#ifdef __AVX512F__
+
+/*****************************/
 static inline __m512i avx512_push_last_byte_of_a_to_b(__m512i a, __m512i b) {
   __m512i last_byte_broadcast = _mm512_set1_epi64(a[7]>>56);
   __m512i indexes = _mm512_set_epi64(0x3E3D3C3B3A393837, 0x363534333231302F, 0x2E2D2C2B2A292827, 0x262524232221201F, 0x1E1D1C1B1A191817, 0x161514131211100F, 0x0E0D0C0B0A090807, 0x0605040302010000);
@@ -18,7 +40,7 @@ static inline __m512i avx512_push_last_2bytes_of_a_to_b(__m512i a, __m512i b) {
 
 // all byte values must be no larger than 0xF4
 static inline void avx512_checkSmallerThan0xF4(__m512i current_bytes, __mmask64* has_error) {
-  *has_error |= (_mm512_reduce_max_epu64(current_bytes) >= 0xF4);
+  *has_error |= _mm512_cmpge_epi8_mask(current_bytes, _mm512_set1_epi8(0xFF));
 }
 
 static inline __m512i avx512_continuationLengths(__m512i high_nibbles) {
@@ -62,6 +84,12 @@ static inline void avx512_checkFirstContinuationMax(__m512i current_bytes,
   *has_error |= badfollowED | badfollowF4;
 }
 
+// map off1_hibits => error condition
+// hibits     off1    cur
+// C       => < C2 && true
+// E       => < E1 && < A0
+// F       => < F1 && < 90
+// else      false && false
 static inline void avx512_checkOverlong(__m512i current_bytes,
                                     __m512i off1_current_bytes, __m512i hibits,
                                     __m512i previous_hibits,
@@ -126,13 +154,13 @@ static struct avx512_processed_utf_bytes
 avx512_checkUTF8Bytes_asciipath(__m512i current_bytes,
                             struct avx512_processed_utf_bytes *previous,
                             __mmask64 *has_error) {
-  if (_mm512_mask_reduce_or_epi32(0xFFFF, current_bytes) | 0x80808080) { // fast ascii path
+  if (_mm512_reduce_or_epi32(current_bytes) & 0x80808080) { // fast ascii path
     *has_error |= 
-        _mm512_cmpgt_epu8_mask(previous->carried_continuations,
+        _mm512_cmpgt_epi8_mask(previous->carried_continuations,
                           _mm512_setr_epi32(0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
-                                            0x09090909, 0x09090909, 0x09090909, 0x09090901));
+                                            0x09090909, 0x09090909, 0x09090909, 0x01090909));
     return *previous;
   }
 
@@ -179,11 +207,11 @@ static bool validate_utf8_fast_avx512_asciipath(const char *src, size_t len) {
     __m512i current_bytes = _mm512_loadu_si512((const __m512i *)(buffer));
     previous = avx512_checkUTF8Bytes(current_bytes, &previous, &has_error);
   } else {
-    has_error |= _mm512_cmpgt_epu8_mask(previous.carried_continuations,
+    has_error |= _mm512_cmpgt_epi8_mask(previous.carried_continuations,
                           _mm512_setr_epi32(0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
-                                            0x09090909, 0x09090909, 0x09090909, 0x09090901));
+                                            0x09090909, 0x09090909, 0x09090909, 0x01090909));
   }
 
   return !has_error;
@@ -215,8 +243,12 @@ static bool validate_utf8_fast_avx512(const char *src, size_t len) {
                           _mm512_setr_epi32(0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
-                                            0x09090909, 0x09090909, 0x09090909, 0x09090901));
+                                            0x09090909, 0x09090909, 0x09090909, 0x01090909));
   }
 
   return !has_error;
 }
+
+#endif // __AVX512F__
+
+#endif // SIMDUTF8CHECK_AXV512_H
