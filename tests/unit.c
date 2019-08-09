@@ -10,6 +10,15 @@
 #include "simdasciicheck.h"
 #include "simdutf8check_avx512.h"
 #include "simdasciicheck_avx512.h"
+static void print128(const char *s, const __m128i *v128)
+{
+  const unsigned char *v8 = (const unsigned char *)v128;
+  if (s)
+    printf("%s: ", s);
+  for (int i = 0; i < 16; i++)
+    printf("%02x ", v8[i]);
+  printf("\n");
+}
 
 
 
@@ -266,6 +275,13 @@ void test() {
   assert(_mm_test_all_zeros(has_error, has_error));
   assert(_mm_test_all_ones(_mm_cmpeq_epi8(carries, _mm_setr_epi8(4,3,2,1,3,2,1,2,1,1,2,1,3,2,1,1))));
 
+  __m512i cont512 = _mm512_set4_epi32(0x01000003, 0x00020100, 0x02000003, 0x00000004);
+  __mmask64 has_error512 = 0;
+  __m512i carries512 = avx512_carryContinuations(cont512, _mm512_set1_epi8(1));
+  avx512_checkContinuations(cont512, carries512, &has_error512);
+  assert(has_error512 == 0); // all zeros
+  assert(_mm512_cmpeq_epi8_mask(carries512,_mm512_set4_epi32(0x01010203, 0x01020101, 0x02010203, 0x01020304)) == 0xFFFFFFFFFFFFFFFF); // all ones
+
   // overlap
   cont = _mm_setr_epi8(4,0,1,0,3,0,0,2,0,1,2,0,3,0,0,1);
   has_error = _mm_setzero_si128();
@@ -273,12 +289,25 @@ void test() {
   checkContinuations(cont, carries, &has_error);
   assert(!_mm_test_all_zeros(has_error, has_error));
 
+  cont512 = _mm512_set4_epi32(0x01000003, 0x00020100, 0x02000003, 0x00010004);
+  has_error512 = 0;
+  carries512 = avx512_carryContinuations(cont512, _mm512_set1_epi8(1));
+  avx512_checkContinuations(cont512, carries512, &has_error512);
+  assert(has_error512 != 0);
+
+
   // underlap
   cont = _mm_setr_epi8(4,0,0,0,0,0,0,2,0,1,2,0,3,0,0,1);
   has_error = _mm_setzero_si128();
   carries = carryContinuations(cont, _mm_set1_epi8(1));
   checkContinuations(cont, carries, &has_error);
   assert(!_mm_test_all_zeros(has_error, has_error));
+
+  cont512 = _mm512_set4_epi32(0x01000003, 0x00020100, 0x02000000, 0x00000004);
+  has_error512 = 0;
+  carries512 = avx512_carryContinuations(cont512, _mm512_set1_epi8(1));
+  avx512_checkContinuations(cont512, carries512, &has_error512);
+  assert(has_error512 != 0);
 
     // register crossing
   cont = _mm_setr_epi8(0,2,0,3,0,0,2,0,1,2,0,3,0,0,1,1);
@@ -288,6 +317,12 @@ void test() {
   checkContinuations(cont, carries, &has_error);
   assert(_mm_test_all_zeros(has_error, has_error));
 
+  cont512 = _mm512_set4_epi32(0x01010000, 0x03000201, 0x00020000, 0x03000200);
+  __m512i prev512 = _mm512_set4_epi32(0x02030402, 0x03010201, 0x01020102, 0x03010203);
+  has_error512 = 0;
+  carries512 = avx512_carryContinuations(cont512, prev512);
+  avx512_checkContinuations(cont512, carries512, &has_error512);
+  assert(has_error512 != 0);
 }
 
 int main() {
