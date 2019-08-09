@@ -40,7 +40,7 @@ static inline __m512i avx512_push_last_2bytes_of_a_to_b(__m512i a, __m512i b) {
 
 // all byte values must be no larger than 0xF4
 static inline void avx512_checkSmallerThan0xF4(__m512i current_bytes, __mmask64* has_error) {
-  *has_error |= _mm512_cmpge_epu8_mask(current_bytes, _mm512_set1_epi8(0xF4));
+  *has_error |= _mm512_cmpgt_epu8_mask(current_bytes, _mm512_set1_epi8(0xF4));
 }
 
 static inline __m512i avx512_continuationLengths(__m512i high_nibbles) {

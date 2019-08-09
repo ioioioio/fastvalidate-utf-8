@@ -10,17 +10,6 @@
 #include "simdasciicheck.h"
 #include "simdutf8check_avx512.h"
 #include "simdasciicheck_avx512.h"
-static void print128(const char *s, const __m128i *v128)
-{
-  const unsigned char *v8 = (const unsigned char *)v128;
-  if (s)
-    printf("%s: ", s);
-  for (int i = 0; i < 16; i++)
-    printf("%02x ", v8[i]);
-  printf("\n");
-}
-
-
 
 void test() {
   size_t N = 128;
