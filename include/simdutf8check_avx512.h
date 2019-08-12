@@ -27,20 +27,18 @@
 
 /*****************************/
 static inline __m512i avx512_push_last_byte_of_a_to_b(__m512i a, __m512i b) {
-  __m512i last_byte_broadcast = _mm512_set1_epi64(a[7]>>56);
-  __m512i indexes = _mm512_set_epi64(0x3E3D3C3B3A393837, 0x363534333231302F, 0x2E2D2C2B2A292827, 0x262524232221201F, 0x1E1D1C1B1A191817, 0x161514131211100F, 0x0E0D0C0B0A090807, 0x0605040302010000);
-  return _mm512_mask_permutexvar_epi8(last_byte_broadcast, 0xFFFFFFFFFFFFFFFE, indexes, b);
+  __m512i indexes = _mm512_set_epi64(0x3E3D3C3B3A393837, 0x363534333231302F, 0x2E2D2C2B2A292827, 0x262524232221201F, 0x1E1D1C1B1A191817, 0x161514131211100F, 0x0E0D0C0B0A090807, 0x060504030201007F);
+  return _mm512_permutex2var_epi8(b, indexes, a);
 }
 
 static inline __m512i avx512_push_last_2bytes_of_a_to_b(__m512i a, __m512i b) {
-  __m512i last_2bytes_broadcast = _mm512_set1_epi64(a[7]>>48);
-  __m512i indexes = _mm512_set_epi64(0x3D3C3B3A39383736, 0x3534333231302F2E, 0x2D2C2B2A29282726, 0x2524232221201F1E, 0x1D1C1B1A19181716, 0x1514131211100F0E, 0x0D0C0B0A09080706, 0x0504030201000000);
-  return _mm512_mask_permutexvar_epi8(last_2bytes_broadcast, 0xFFFFFFFFFFFFFFFC, indexes, b);
+  __m512i indexes = _mm512_set_epi64(0x3D3C3B3A39383736, 0x3534333231302F2E, 0x2D2C2B2A29282726, 0x2524232221201F1E, 0x1D1C1B1A19181716, 0x1514131211100F0E, 0x0D0C0B0A09080706, 0x0504030201007F7E);
+  return _mm512_permutex2var_epi8(b, indexes, a);
 }
 
 // all byte values must be no larger than 0xF4
 static inline void avx512_checkSmallerThan0xF4(__m512i current_bytes, __mmask64* has_error) {
-  *has_error |= _mm512_cmpgt_epu8_mask(current_bytes, _mm512_set1_epi8(0xF4));
+  *has_error = _kor_mask64(*has_error, _mm512_cmpgt_epu8_mask(current_bytes, _mm512_set1_epi8(0xF4)));
 }
 
 static inline __m512i avx512_continuationLengths(__m512i high_nibbles) {
@@ -67,7 +65,10 @@ static inline void avx512_checkContinuations(__m512i initial_lengths,
   // overlap || underlap
   // carry > length && length > 0 || !(carry > length) && !(length > 0)
   // (carries > length) == (lengths > 0)
-  *has_error |= ~(_mm512_cmpgt_epi8_mask(carries, initial_lengths) ^ _mm512_cmpgt_epi8_mask(initial_lengths, _mm512_setzero_si512()));
+  //*has_error |= ~(_mm512_cmpgt_epi8_mask(carries, initial_lengths) ^ _mm512_cmpgt_epi8_mask(initial_lengths, _mm512_setzero_si512()));
+  *has_error = _kor_mask64(*has_error,
+                           _knot_mask64(_kxor_mask64(_mm512_cmpgt_epi8_mask(carries, initial_lengths),
+                                        _mm512_cmpgt_epi8_mask(initial_lengths, _mm512_setzero_si512()))));
 }
 
 // when 0xED is found, next byte must be no larger than 0x9F
@@ -78,10 +79,12 @@ static inline void avx512_checkFirstContinuationMax(__m512i current_bytes,
                                                 __mmask64 *has_error) {
   __mmask64 maskED = _mm512_cmpeq_epi8_mask(off1_current_bytes, _mm512_set1_epi8(0xED));
   __mmask64 maskF4 = _mm512_cmpeq_epi8_mask(off1_current_bytes, _mm512_set1_epi8(0xF4));
-  __mmask64 badfollowED = _mm512_cmpgt_epi8_mask(current_bytes, _mm512_set1_epi8(0x9F)) & maskED;
-  __mmask64 badfollowF4 = _mm512_cmpgt_epi8_mask(current_bytes, _mm512_set1_epi8(0x8F)) & maskF4;
+  __mmask64 badfollowED = _kand_mask64(_mm512_cmpgt_epi8_mask(current_bytes, _mm512_set1_epi8(0x9F)),
+                                       maskED);
+  __mmask64 badfollowF4 = _kand_mask64(_mm512_cmpgt_epi8_mask(current_bytes, _mm512_set1_epi8(0x8F)),
+                                       maskF4);
 
-  *has_error |= badfollowED | badfollowF4;
+  *has_error = _kor_mask64(*has_error,_kor_mask64(badfollowED, badfollowF4));
 }
 
 // map off1_hibits => error condition
@@ -105,7 +108,7 @@ static inline void avx512_checkOverlong(__m512i current_bytes,
       _mm512_setr4_epi32(0x80808080, 0x80808080, 0x80808080, 0x90A07F7F), // see avx2 version for clarity
       off1_hibits);
   __mmask64 second_under = _mm512_cmpgt_epi8_mask(second_mins, current_bytes);
-  *has_error |= (initial_under & second_under);
+  *has_error = _kor_mask64(*has_error, _kand_mask64(initial_under, second_under));
 }
 
 struct avx512_processed_utf_bytes {
@@ -155,12 +158,12 @@ avx512_checkUTF8Bytes_asciipath(__m512i current_bytes,
                             struct avx512_processed_utf_bytes *previous,
                             __mmask64 *has_error) {
   if (!_mm512_cmpge_epu8_mask(current_bytes, _mm512_set1_epi8(0x80))) { // fast ascii path
-    *has_error |= 
+    *has_error = _kor_mask64(*has_error, 
         _mm512_cmpgt_epi8_mask(previous->carried_continuations,
                           _mm512_setr_epi32(0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
-                                            0x09090909, 0x09090909, 0x09090909, 0x01090909));
+                                            0x09090909, 0x09090909, 0x09090909, 0x01090909)));
     return *previous;
   }
 
@@ -207,11 +210,11 @@ static bool validate_utf8_fast_avx512_asciipath(const char *src, size_t len) {
     __m512i current_bytes = _mm512_loadu_si512((const __m512i *)(buffer));
     previous = avx512_checkUTF8Bytes(current_bytes, &previous, &has_error);
   } else {
-    has_error |= _mm512_cmpgt_epi8_mask(previous.carried_continuations,
+    has_error = _kor_mask64(has_error,  _mm512_cmpgt_epi8_mask(previous.carried_continuations,
                           _mm512_setr_epi32(0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
-                                            0x09090909, 0x09090909, 0x09090909, 0x01090909));
+                                            0x09090909, 0x09090909, 0x09090909, 0x01090909)));
   }
 
   return !has_error;
@@ -239,11 +242,11 @@ static bool validate_utf8_fast_avx512(const char *src, size_t len) {
     __m512i current_bytes = _mm512_loadu_si512((const __m512i *)(buffer));
     previous = avx512_checkUTF8Bytes(current_bytes, &previous, &has_error);
   } else {
-    has_error |= _mm512_cmpgt_epi8_mask(previous.carried_continuations,
+    has_error = _kor_mask64(has_error,  _mm512_cmpgt_epi8_mask(previous.carried_continuations,
                           _mm512_setr_epi32(0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
                                             0x09090909, 0x09090909, 0x09090909, 0x09090909,
-                                            0x09090909, 0x09090909, 0x09090909, 0x01090909));
+                                            0x09090909, 0x09090909, 0x09090909, 0x01090909)));
   }
 
   return !has_error;
